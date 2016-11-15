@@ -1,0 +1,8 @@
+games	http://games.ifeng.com
+auto	http://auto.ifeng.com
+weather	http://weather.ifeng.com
+travel	http://travel.ifeng.com
+gourmet	http://gourmet.ifeng.com
+life	http://life.ifeng.com
+news	http://news.ifeng.com
+pic	http://pic.ifeng.com

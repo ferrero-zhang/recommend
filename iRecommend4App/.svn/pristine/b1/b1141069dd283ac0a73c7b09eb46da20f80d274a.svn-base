@@ -1,0 +1,74 @@
+log_path=/newsapplog/
+log_type=applog_time
+temp_log_path=/data/extractAPPLogTime/data/
+channel_url_file_path=/data/extractAPPLogTime/conf/channel_url_file
+
+#send data to cf
+simplecfUrl=http://10.32.25.105:8080/simplecfReceiveUser/ReceiveUidServlet
+
+#redis for behind
+redisserverip = 10.32.21.62
+redisserverport = 6379
+maxactive = 100
+maxidel = 10
+maxwait = 10000
+redistimeout = 10000
+
+#entityPath
+EntityPath = D:\\data\\database\\
+#SourcePath
+SourcePath = D:\\data\\\simC\\sourceCanUsed
+#xwordPath
+xwordPath = D:\\data\\\simC\\xsCanUsed
+#etwordPath
+etwordPath = D:\\data\\\simC\\etsCanUsed
+#BlackListPath
+BlackListPath = D:\\data\\blackList
+#redis for before
+redisserverip_before = 10.32.21.61
+redisserverport_before = 6380
+redistimeout_before = 10000
+#whiteListPath
+whiteListPath = D:\\data\\whiteList
+#tongji 
+tongjiUrls = http://tongji.ifeng.com:9090/webtop/loadNews?chnnid=http://news.ifeng.com/mil/&num=100&tmnum=0;http://tongji.ifeng.com:9090/webtop/loadNews?chnnid=http://news.ifeng.com/taiwan/&num=100&tmnum=0;http://tongji.ifeng.com:9090/webtop/loadNews?chnnid=http://news.ifeng.com/mainland/&num=100&tmnum=0;http://tongji.ifeng.com:9090/webtop/loadNews?chnnid=http://ent.ifeng.com/&num=100&tmnum=0
+
+#segment
+segment_server_ip  = 10.32.24.87
+segment_server_port = 6600
+segment_timeoutInMS = 5000
+
+#read cmpp
+startUrl = http://news.cmpp.ifeng.com/Cmpp/runtime/interface_161.jhtml
+searchPath = 3428
+searchPathName = mainland
+startTime = 20140101
+endTime = 20141011
+limitCount = 1000
+timeLeap = 86400000
+cmppSavePath = /data/dataPrepare/
+
+#HDFS ip address
+HDFSIP = hdfs://10.32.21.111:8020/
+#StopWordPath
+StopWordPath = C:\\data\\entity\\stopwords.txt
+#tagsMappingPath
+tagsMappingPath = C:\\data\\entity\\tagsmapping.txt
+
+#solrServerUrl
+solrServerUrl = http://10.32.24.194:8080/solr46/article/
+#StartOSCache
+StartOSCache = false
+#solrTESTServerUrl
+#solrServerUrl = http://10.32.24.194:8081/solr46/article/
+#WordIdfPath
+WordIdfPath = D:\\data\\simC\\idf_allDocs.txt
+#hotKeyPath
+hotKeyPath = D:\\data\\hotwords
+
+#cscwordPath
+cscwordPath = D:\\data\\cscword.txt
+WordIDFPath = conf\\word_idf.txt
+
+#slideWeightPath
+slideWeightPath = C:\\data\\entity\\pictureC.txt

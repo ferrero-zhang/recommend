@@ -1,0 +1,350 @@
+/**
+ * 
+ */
+package com.ifeng.iRecommend.likun.rankModel;
+
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import com.ifeng.iRecommend.featureEngineering.dataStructure.itemf;
+import com.ifeng.iRecommend.fieldDicts.fieldDicts;
+
+/**
+ * <PRE>
+ * 作用 : 新闻生命周期设置模块，通过动态加载配置文件对新闻生命周期进行精细控制
+ *   
+ * 使用 : 通过getInstance()获取对象实体，再调用setNewsLifeTime(itemf item),获取新闻生命周期
+ *   
+ * 示例 :
+ *   
+ * 注意 :
+ *   
+ * 历史 :
+ * -----------------------------------------------------------------------------
+ *        VERSION          DATE           BY       CHANGE/COMMENT
+ * -----------------------------------------------------------------------------
+ *          1.0          2015年4月17日        zhanzh          create
+ * -----------------------------------------------------------------------------
+ * </PRE>
+ */
+
+public class LifeTimeSetter {
+	private static Log LOG = LogFactory.getLog("LifeTimeSetter");
+	
+	private static String propertiesFilePath = fieldDicts.newsLifeTimePropertiesFilePath;
+	private AutoLoadingConfiguration config;
+	private static LifeTimeSetter instance = new LifeTimeSetter();
+	private LifeTimeSetter(){
+		this.config = new AutoLoadingConfiguration(propertiesFilePath, LOG);
+	}
+	public static LifeTimeSetter getInstance(){
+		return instance;
+	}
+	
+	/**
+	 * 解析itemF的feature字段，并返回itemF的特征map
+	 * 
+	 * @param itemF 
+	 * 
+	 * @return HashMap<String,String> key=c\sc\cn\et\...  value=自媒体|网球|...
+	 * 
+	 */
+	private static HashMap<String, String> parserItemfFeature(itemf item){
+		HashMap<String, String> FeatureMap = new HashMap<String, String>();
+		if(item == null){
+			return FeatureMap;
+		}
+		ArrayList<String> featurelist = item.getFeatures();
+		if(featurelist == null||featurelist.isEmpty()){
+			return FeatureMap;
+		}
+		for(int i=1;i<=featurelist.size()-2;i+=3){
+			String temp = featurelist.get(i);
+
+			String feature = FeatureMap.get(temp);
+			if(feature != null){
+				feature = feature+"|"+featurelist.get(i-1);
+				FeatureMap.put(temp, feature);
+			}else{
+				FeatureMap.put(temp, featurelist.get(i-1));
+			}
+		}
+		return FeatureMap;
+	}
+	
+	/**
+	 * 解析itemF的feature字段，并返回itemF的一级分类C的特征值，若解析失败返回null
+	 * 
+	 * @param itemF 
+	 * 
+	 * @return String 一级分类
+	 * 
+	 */
+	private String getItemfFirstChannel(itemf item){
+		ArrayList<String> featurelist = item.getFeatures();
+		if(featurelist == null||featurelist.isEmpty()){
+			return null;
+		}
+		for(int i=1;i<featurelist.size()-2;i+=2){
+			String temp = featurelist.get(i);
+			if(temp.equals("c")){
+				String channel = featurelist.get(i-1);
+				return channel;
+			}
+		}
+		return null;
+	}
+	
+	/**
+	 * //设置新闻生命周期的统一接口
+	 * //若新闻查不到对应的生命周期默认生命时长为8个小时
+	 * 
+	 * new:
+	 * lifetime将由泳钢的识别器来提供：
+	 * timeSensitive=nt
+	 * timeSensitive=2016-11-4 23:59:00
+	 * 
+	 * 注意：
+	 *   lifetime返回的是以hour为单位的值； 
+	 *   做向下約减，为了满足精确时间需求，比如截至到晚上22点
+	 * 
+	 * @param itemF 
+	 * 
+	 * @return float 生命时长
+	 * 
+	 */
+	public float setNewsLifeTime(itemf item){
+		int periodUnitInHour = 1;//转为小时为单位
+		if(fieldDicts.periodUnit == 0){
+			periodUnitInHour = 1;
+		}else{
+			periodUnitInHour = 60/fieldDicts.periodUnit;
+		}
+		
+		float lifeTime = 2*periodUnitInHour;
+		
+		if(item == null){
+			LOG.warn("item is null ");
+			return lifeTime;
+		}
+		
+		
+
+//		//根据时效性识别模块来计算lifetime
+//		//timeSensitive=nt
+//		//timeSensitive=2016-11-4 23:59:00
+//		if(item.getOther().indexO("timeSensitive=false") >= 0)
+//			lifeTime = lifeTime * 3;
+		String itemOtherField = item.getOther();
+		if(itemOtherField != null){
+			int b = itemOtherField.indexOf("timeSensitive");
+			if(b >= 0){
+				b = b + 14;
+				int e = itemOtherField.indexOf("|!|",b);
+				if(e <= b)
+					e = itemOtherField.length();
+				
+				if(e > b){
+					try{
+						String time = itemOtherField.substring(b, e).trim();
+						
+						if(time.equals("nt")){
+							lifeTime = 7*24; //最长7天的时效性
+						}else{
+							SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+							Date ctime = formatter.parse(time);
+							long deadTimeMS = ctime.getTime();
+							long nowMS = System.currentTimeMillis();
+							
+							lifeTime = (deadTimeMS-nowMS)/(60*60*1000.0f);			
+						}
+
+					}catch(Exception e1){
+						LOG.error("timeSensitive error:",e1);
+						lifeTime = 2*periodUnitInHour;
+					}
+					
+					if(lifeTime > 2*periodUnitInHour)
+						return  lifeTime;
+					
+					
+				}
+					
+			}
+					
+		}
+		
+		
+		
+		
+		// 具有时效性的内容，控制生命周期 较高优先级，
+		{
+			String title = item.getTitle();
+			if (title != null) {
+				if (title.indexOf("今日") >= 0 || title.indexOf("每日") >= 0
+						|| title.indexOf("今晚") >= 0 || title.indexOf("昨日") >= 0) {
+					// 计算到24点的时间差，lifetime将截止到24点
+					Calendar cal = Calendar.getInstance();
+					cal.setTime(new Date());
+					int hour = cal.get(Calendar.HOUR_OF_DAY);
+					lifeTime = (24 - hour)*periodUnitInHour;
+					if (lifeTime <= 0)
+						lifeTime = 1;
+					return lifeTime;
+				}
+
+				if (title.startsWith("预告") || title.indexOf("预告：") >= 0
+						|| title.indexOf("预告-") >= 0) {
+					// 计算到24点的时间差，lifetime将截止到24点
+					Calendar cal = Calendar.getInstance();
+					cal.setTime(new Date());
+					int hour = cal.get(Calendar.HOUR_OF_DAY);
+					lifeTime = (24 - hour)*periodUnitInHour;
+					if (lifeTime <= 0)
+						lifeTime = 1;
+					return lifeTime;
+				}
+				
+				//如果是体育，做特殊控制
+				if(item.getFeatures() != null && item.getFeatures().toString().indexOf("体育") > 0)
+				{
+					if (title.startsWith("首映") || 
+							title.startsWith("正播") || title.startsWith("直播")
+							|| title.indexOf("直播：") >= 0
+							|| title.indexOf("直播-") >= 0
+							|| title.indexOf("正直播") >= 0
+							|| title.indexOf("正在直播") >= 0
+							|| title.indexOf("正在播报") >= 0
+							|| title.indexOf("半场战报") >= 0
+							|| title.indexOf("快讯") >= 0
+							|| title.indexOf("首发：") >= 0
+							|| title.indexOf("首发 ") >= 0) {
+						//直播类新闻生命周期默认两个小时
+						lifeTime = 2;
+						return lifeTime;
+					}
+					
+					//如果标题有比分，那么生命周期缩短到1个小时;eg GIF：高拉特头球破门，恒大2-2富力
+					if(title.matches("^.*?[0-5]-[0-5].*?$")  && title.indexOf("胜") < 0 && title.indexOf("败") < 0)
+					{
+						//直播类新闻生命周期默认一个小时
+						lifeTime = 1;
+						return lifeTime;
+					}
+					
+				}
+			}
+			
+		}
+		
+		//若非时效性新闻优先级较低，走配置文件生命周期
+//		Map<String, String> lifeTimeMap = config.getPropertiesMap();
+//		String channel = getItemfFirstChannel(item);
+//		if(channel == null){
+//			LOG.warn("This item "+item.getID()+"Can not found channel ");
+//			return lifeTime;
+//		}
+//		String lfstr = lifeTimeMap.get(channel);
+//		if(lfstr == null){
+//			LOG.warn("This Channel "+channel+" did not have lifeTime information");
+//			return lifeTime;
+//		}
+//		try{
+//			lifeTime = Integer.parseInt(lfstr)*periodUnit;
+//		}catch(Exception e){
+//			LOG.error("get "+channel+" lifeTime error ", e);
+//			return lifeTime;
+//		}
+		
+		
+		//新版生命周期控制模块
+		Map<String, String> lifeTimeMap = config.getPropertiesMap();
+		//Debug testLOG
+		if(config == null || lifeTimeMap.isEmpty()){
+			LOG.error("Config lifeTimeMap is empty ~");
+		}
+		boolean hitmark = false; //Debug 用于测试是否命中到配置文件
+		
+		
+		HashMap<String, String> itemFeatureMap = parserItemfFeature(item);
+
+		//生命周期优先又cn决定，其次由sc决定，若以上均查不到则由c决定
+		String[] typelist = {"cn","sc","c"};
+		for(String type : typelist){
+			String feature = itemFeatureMap.get(type);
+			if(feature != null){
+				String[] featurelist = feature.split("\\|");
+				int tempMaxTime = 0;
+				for(String tempFeature : featurelist){
+					tempFeature = type+tempFeature;
+					String temptimestr = lifeTimeMap.get(tempFeature);
+					if(temptimestr != null){
+						try{
+
+							int temptime = Integer.parseInt(temptimestr);
+							if(temptime > tempMaxTime){
+								tempMaxTime = temptime;
+								//Debug
+								hitmark = true;
+								LOG.info(item.getID()+" hit feature : "+tempFeature+" lifeTime is : "+tempMaxTime);
+							}
+						}catch(Exception e){
+							LOG.error("parser lifeTime error "+tempFeature, e);
+							continue;
+						}
+					}
+				}
+				if(tempMaxTime != 0){
+					lifeTime = tempMaxTime * periodUnitInHour;
+					break;
+				}
+			}
+		}
+		
+		//debug testlog
+		if(hitmark == false){
+			LOG.warn("Item id : "+item.getID()+" title : "+item.getTitle()+" donot hit LifeTimeMap "+item.getFeatures());
+		}
+		
+		//slide放大
+		if(item.getDocType().equals("slide"))
+			lifeTime = lifeTime * 2;
+		
+		//如果时效性识别模块认为没有问题，lifetime继续放大
+		if(item.getOther().indexOf("timeSensitive=false") >= 0)
+			lifeTime = lifeTime * 3;
+		
+		LOG.info("Item id : "+item.getID()+" title : "+item.getTitle()+" LifeTime : "+lifeTime);
+		return lifeTime;
+	}
+	
+	public static void main(String[] args){
+////		fieldDicts.newsLifeTimePropertiesFilePath = "D://newsLifeTime.properties";
+//		
+//		queryInterface qi = queryInterface.getInstance();
+//		LifeTimeSetter lt = LifeTimeSetter.getInstance();
+//		itemf item1 = qi.queryItemF("2163812");
+//		System.out.println(item1.getTitle());
+//		System.out.println(item1.getDocType());
+//		HashMap<String, String> hashMap = parserItemfFeature(item1);
+//		System.out.println(hashMap);
+////		itemf item1 = new itemf();
+////		item1.setTitle("今日哇哈哈");
+////		item1.setID("1231231");
+////		itemf item = qi.queryItemF("《蝙蝠侠》先导海报预告双发 双雄对决开启史诗级大战");
+////		System.out.println(item.getID());
+////		System.out.println(item.getFeatures());
+//	    int lifetime = lt.setNewsLifeTime(item1);
+//	    System.out.println(lifetime);
+	}
+
+}

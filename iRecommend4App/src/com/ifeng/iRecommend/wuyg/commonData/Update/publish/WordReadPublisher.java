@@ -1,0 +1,165 @@
+package com.ifeng.iRecommend.wuyg.commonData.Update.publish;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.log4j.PropertyConfigurator;
+
+import com.ifeng.commen.Utils.LoadConfig;
+import com.ifeng.iRecommend.wuyg.commonData.Update.CommonSubDataWord.WordState;
+import com.ifeng.iRecommend.wuyg.commonData.Update.PublisherOperate;
+import com.ifeng.iRecommend.wuyg.commonData.Update.UpdateActionType;
+import com.ifeng.iRecommend.wuyg.commonData.Update.commonDataUpdateConfig;
+
+/**
+ * 
+ * <PRE>
+ * 作用 : 
+ *   可读词每次更新注意与用户词典同步，此块代码有可能是注释掉的。
+ * 使用 : 
+ *   
+ * 示例 :
+ *   
+ * 注意 :
+ *   
+ * 历史 :
+ * -----------------------------------------------------------------------------
+ *        VERSION          DATE           BY       CHANGE/COMMENT
+ * -----------------------------------------------------------------------------
+ *          1.0          2015年12月16日        wuyg1          create
+ * -----------------------------------------------------------------------------
+ * </PRE>
+ */
+
+public class WordReadPublisher extends PublisherOperate{
+    private static Log LOG = LogFactory.getLog(WordReadPublisher.class);
+    static String userDicPattern = LoadConfig.lookUpValueByKey("userDicPattern");
+    static String UserDicDataDbNum = LoadConfig.lookUpValueByKey("UserDicDataDbNum");
+	public WordReadPublisher(String key, String channel) {
+		super(key, channel);
+		// TODO Auto-generated constructor stub
+	}
+	
+	public void publish(String message, String updatetype,
+			List<String> dataList,String state) {
+		if (null == message || message.isEmpty()) {
+			return;
+		}
+
+			LOG.info("publish_message:" + message);
+			if (super.pubMessage(message)) {
+				LOG.info("Publish Success.");
+			} else {
+				LOG.error("Publish Failed.");
+				switch (UpdateActionType.getActionType(updatetype)) {
+				case ADD_WORD:
+					updateWord_Del(dataList, state);
+					break;
+				case DEL_WORD:
+					updateWord_Add(dataList, state);
+					break;
+				case ALTER_WORD:
+					updateWord_Alter_undo(dataList,state);
+					break;
+				default:
+					break;
+				}
+
+			}
+	}
+	
+	
+	public static void main(String[] args) {
+		PropertyConfigurator.configure("./conf/log4j.properties");
+		WordReadPublisher wordReadPublisher = new WordReadPublisher(
+				commonDataUpdateConfig.wordPattern,
+				commonDataUpdateConfig.wordMessageChannel);
+		List<String> wordInfos = new ArrayList<String>();
+		
+		String path = new String();
+		
+		String message = new String();
+		
+		ArrayList<String> userDicList = new ArrayList<String>();
+		
+//		wordInfos = wordReadPublisher.getSourceData(LoadConfig
+//				.lookUpValueByKey("Filedir")+"可读表.txt");
+//		
+//		wordInfos.clear();
+//		wordInfos.add("老司机");
+//		
+//		message = wordReadPublisher.updateWord_Add(wordInfos, WordState.read.name(), userDicList);
+//        wordReadPublisher.publish(message, UpdateActionType.ADD_WORD.name(), wordInfos, WordState.read.name());
+////		
+//    	AllWordPublisher allWordPublisher = new AllWordPublisher(LoadConfig.lookUpValueByKey("allWordMessageChannel"), null);
+//		
+//    	allWordPublisher.addWord2AllWordLib(userDicList);
+        
+        
+		//=================可读词添加=====================
+		path = LoadConfig.lookUpValueByKey("Filedir") + "addword_read.txt";
+		wordInfos = wordReadPublisher.getSourceData(path);
+//		wordInfos.clear();
+//		wordInfos.add("卡牌游戏");
+		//wordInfos.add("上台费");
+		
+		message = wordReadPublisher.updateWord_Add(wordInfos,WordState.read.name(),userDicList,null,null);
+		wordReadPublisher.publish(message, UpdateActionType.ADD_WORD.name(),
+				wordInfos,WordState.read.name());
+		//载入外挂词典
+//		UserDicPublisher userDicPublisher = new UserDicPublisher(LoadConfig.lookUpValueByKey("userDicPatternChannel"), userDicPattern);
+//		message = userDicPublisher.addWord2UserDic(userDicList);
+//
+//		userDicPublisher.publish(message, UpdateActionType.ADD_WORD.name(),
+//				null, null);
+//
+//		userDicList.clear();
+		
+		//=================添加不可读词到可读表（包含已经存在于可读表中的可读词状态修改）=====================
+		path = LoadConfig.lookUpValueByKey("Filedir") + "addword_unread.txt";
+		wordInfos = wordReadPublisher.getSourceData(path);
+//		
+////		wordInfos.add("明后天");
+////		wordInfos.add("旧照");
+//		
+		message = wordReadPublisher.updateWord_Add(wordInfos,WordState.unread.name(),userDicList,null,null);
+		wordReadPublisher.publish(message, UpdateActionType.ADD_WORD.name(),
+				wordInfos,WordState.unread.name());
+		
+
+		//==================将存在的可读词更改为不可读======================
+//		path = LoadConfig.lookUpValueByKey("Filedir") + "alterword.txt";
+//		wordInfos = wordReadPublisher.getSourceData(path);
+//		wordInfos.clear();
+//		wordInfos.add("宜家");
+//		//wordInfos.add("违规");
+//		//wordInfos.add("违法");
+//		message = wordReadPublisher.updateWord_Alter(wordInfos,WordState.unread.name());
+//		wordReadPublisher.publish(message,
+//				UpdateActionType.ALTER_WORD.name(), wordInfos,WordState.unread.name());
+		
+		
+		
+//		path = LoadConfig.lookUpValueByKey("Filedir") + "delword.txt";
+//		wordInfos = wordReadPublisher.getSourceData(path);
+//		wordInfos.add("范志红_原创营养信息");
+//		message = wordReadPublisher.updateWord_Del(wordInfos, WordState.read.name());
+//		wordReadPublisher.publish(message, UpdateActionType.DEL_WORD.name(),
+//				wordInfos,WordState.read.name());
+		
+		//==================将存在的不可读词更改为可读词======================
+//		path = LoadConfig.lookUpValueByKey("Filedir") + "alterword.txt";
+//		wordInfos = wordReadPublisher.getSourceData(path);
+//		//wordInfos.clear();
+//		//wordInfos.add("传销");
+//		//wordInfos.add("违规");
+//		//wordInfos.add("违法");
+//		message = wordReadPublisher.updateWord_Alter(wordInfos,WordState.read.name());
+//		wordReadPublisher.publish(message,
+//				UpdateActionType.ALTER_WORD.name(), wordInfos,WordState.read.name());
+	}
+	
+	
+}

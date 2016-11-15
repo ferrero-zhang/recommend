@@ -1,0 +1,45 @@
+/**
+ * 
+ */
+package com.ifeng.iRecommend.likun.rankModel;
+
+/**
+ * <PRE>
+ * 作用 : 
+ *   识别女性倾向内容，（关键词模板），将其设置为available == false，不推荐，避免误差；
+ * 使用 : 
+ *   
+ * 示例 :
+ *   
+ * 注意 :
+ *   
+ * 历史 :
+ * -----------------------------------------------------------------------------
+ *        VERSION          DATE           BY       CHANGE/COMMENT
+ * -----------------------------------------------------------------------------
+ *          1.0          2016年11月8日        likun          create
+ * -----------------------------------------------------------------------------
+ * </PRE>
+ */
+public class femaleFilter {
+	
+	/**
+	 * 计算item是否强女性偏向,这个过滤器超级简单
+	 * <p>
+	 * 对item，只用title的简单模板匹配，分析其是否强女性偏向；
+	 * 注意：
+	 *  效果偏向误杀；
+	 * </p>
+	 * 
+	 * @param title
+	 */
+	public static boolean isFemaleDoc(String title){
+		if(title == null || title.isEmpty())
+			return false;
+		
+		if(title.indexOf("月经")>=0 || title.indexOf("阴道炎")>=0)
+			return true;
+	
+		return false;
+	}
+}

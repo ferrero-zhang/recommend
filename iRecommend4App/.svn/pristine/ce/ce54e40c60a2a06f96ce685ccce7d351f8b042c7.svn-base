@@ -1,0 +1,480 @@
+package com.ifeng.iRecommend.likun.rankModel;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+
+import org.apache.log4j.Category;
+
+import com.google.gson.annotations.Expose;
+import com.google.gson.annotations.SerializedName;
+import com.ifeng.commen.Utils.ConfigAutoLoader;
+import com.ifeng.commen.Utils.commenFuncs;
+import com.ifeng.commen.classifyClient.ClassifierClient;
+import com.ifeng.commen.lidm.hbase.HbaseInterface;
+import com.ifeng.commen.reidx.SplitWordClient;
+import com.ifeng.iRecommend.dingjw.itemParser.Item;
+import com.ifeng.iRecommend.dingjw.itemParser.ItemOperation;
+import com.ifeng.iRecommend.dingjw.itemParser.channelsParser;
+import com.ifeng.iRecommend.featureEngineering.dataStructure.itemf;
+import com.ifeng.iRecommend.fieldDicts.fieldDicts;
+
+/**
+ * <PRE>
+ * 作用 : 
+ *   权重模型文章item类。
+ *   
+ * 使用 : 
+ *   
+ * 示例 :
+ *   
+ * 注意 :
+ * 	 
+ * 历史 :
+ * -----------------------------------------------------------------------------
+ *        VERSION          DATE           BY       CHANGE/COMMENT
+ * -----------------------------------------------------------------------------
+ *          1.0          2013-08-13        dingjw          create
+ * -----------------------------------------------------------------------------
+ * </PRE>
+ */
+public class RankItemNew {
+	@Expose
+	@SerializedName("item")
+	private itemf item;
+
+	@Expose
+	@SerializedName("createTimeStamp")
+	private long createTimeStamp;// 创建rankitem的时间,注意这个时间实际就是从内容池取出的时间，也即被投放的开始时间;特别注意，要换成以秒为单位
+
+	@Expose
+	@SerializedName("weight")
+	private String weight;// 初始的hot level，不变
+
+	@Expose
+	@SerializedName("degraded")
+	public int degraded;// 权重的信号值A为2，B为1，C，D为0
+
+	@Expose
+	@SerializedName("lifetime")
+	public int lifetime;// 存活周期
+
+	@Expose
+	@SerializedName("specialWords")
+	private String specialWords;//由集中排重唯一simID替代（不再从从标题和内容中生成特征码，用于oscache的唯一性ID，担负排重等功能）
+
+	@Expose
+	@SerializedName("category")
+	private String category;// 一级分类
+
+	@Expose
+	@SerializedName("pv")
+	private Integer pv;// 文章的每分钟实时浏览量
+
+	@Expose
+	@SerializedName("others")
+	private String others;// 备注字段
+
+	// 在新建rankitem时根据时间生成编号，只支持单线程;此方法不应该存在；所有的rankitem都应该来自于item_front
+	private RankItemNew() {
+		item = null;
+		category = "";
+		others = "";
+		pv = 0;
+
+	}
+
+	/*
+	 * 构造函数；根据输入的item_front，查询hbase，生成item；
+	 */
+	public RankItemNew(itemf item_front) {
+
+		if (item_front != null) {
+			item = item_front;
+			others = item_front.getOther();
+
+			// 初始weight如何给？默认给D,但是应该取others中给的先验
+			if(others != null){
+				int b = others.indexOf("hotlevel");
+				int e = others.indexOf("|!|",b+3);
+				if(b >= 0){
+					if(e > (b+7)){
+						this.setWeight(others.substring(b+8, e));
+					}else
+						this.setWeight(others.substring(b+8));
+				}
+			}
+			
+			if(this.getWeight() == null || this.getWeight().isEmpty())
+				this.setWeight("D");
+			
+			this.setCreateTimeStamp((System.currentTimeMillis() / 1000));
+			this.setPv(0);// 若没有pv，则pv初始化为0；
+
+			this.setCategory(item.getFeatures());
+
+			// 生成对应特征码
+			this.extractSpecialWords();
+			
+//			//判断是否合法稿源
+//			String source = item_front.getSource();
+//			String url = item_front.getUrl();
+//			if(url == null || url.indexOf("ifeng.com/") <= 0){
+//				others = others + "|!|illegal=true";
+//			}
+			
+			//临时特殊处理，doctype为空的bug
+			if(item.getDocType() == null){
+				//System.out.println(item.getID()+" doctype="+item.getDocType());
+				item.setDocType("doc");
+			}
+			
+			
+		}
+	}
+
+	public long getCreateTimeStamp() {
+		return this.createTimeStamp;
+	}
+
+	public void setCreateTimeStamp(long timeStamp) {
+		this.createTimeStamp = timeStamp;
+	}
+
+	/*
+	 * 设置weight，从外部控制
+	 */
+	public void setWeight(String weight) {
+		this.weight = weight;
+	}
+
+	public String getWeight() {
+		// TODO Auto-generated method stub
+		return weight;
+	}
+
+	/*
+	 * 通过weight及生命周期表等控制lifeTime和degr参数
+	 */
+	public void setLifeTimeAndDegraded() {
+		LifeTimeSetter lt = LifeTimeSetter.getInstance();
+		this.lifetime = lt.setNewsLifeTime(item);
+
+		// AA级的item不走正常的降权删除逻辑，降权次数暂设为0
+		if (this.getWeight().equals("AA")) {
+			this.degraded = 0;
+			return;
+		}
+		// set degraded
+		this.setDegraded(this.getWeight().charAt(0));
+
+	}
+
+	public itemf getItem() {
+		return this.item;
+	}
+
+	public String getSpecialWords() {
+		if (this.specialWords == null)
+			this.extractSpecialWords();
+		return this.specialWords;
+	}
+
+	/**
+	 * 现在改成从others字段中提取sameId（来自集中排重索引服务），之前是根据标题和内容抽取特征词
+	 * eg:
+	 *    source=yidianzixun|!|channel=news|!|hotlevel=B|!|tags=中国足球|!|qualitylevel=C|!|reviewStatus=save|!|state=0|!|sameId=clusterId_9|!|channels={}
+	 * 注意：
+	 * 	clusterID如果没有，那么此字段为空；rankmodel应该在filter环节检验这个字段，并做安全控制
+	 * @param
+	 * @return
+	 */
+	public void extractSpecialWords() {
+		
+		if(others == null || others.isEmpty() || others.indexOf("sameId=") < 0)
+			this.specialWords = "";
+		else{
+			int b = others.indexOf("sameId");
+			int e = others.indexOf("|!|",b+7);
+			if(e > (b+6)){
+				this.specialWords = others.substring(b+7, e);
+			}else
+				this.specialWords = others.substring(b+7);
+			
+		}
+		
+		
+//		this.specialWords = "";
+//		if (item.getSplitTitle() == null)
+//			return;
+//		// 如果没有正文或内容，则将标题作为特征词，并去除词性、换行以及标点
+//		if (item.getSplitContent() == null || item.getSplitContent().isEmpty()) {
+//			this.specialWords = item.getSplitTitle().replaceAll("_[a-z]+", "")
+//					.replace("\r\n", "").replaceAll("\\pP|\\pS", "");
+//			return;
+//		}
+//
+//		// 如果有正文和内容，则将真实标题，以及正文中每个句子的第一个和最后一个词拼装成特征词，例如
+//		StringBuffer sbTmp = new StringBuffer();
+//		String titleFiltered = item.getSplitTitle().replaceAll("_[a-z]+", "")
+//				.replace("\n", "");
+//		sbTmp.append(titleFiltered).append(" ");
+//
+//		String contentSplits[] = item.getSplitContent()
+//				.replaceAll("_[a-z]+ ", " ").replace("\n", "")
+//				.replace("\r", "").split("。");
+//
+//		for (String sentence : contentSplits) {
+//			String sentenceSplited[] = sentence.replace("\n", "")
+//					.replaceAll("\\pP|\\pS", "").split(" ");
+//			if (sentenceSplited.length > 2) {
+//				sbTmp.append(sentenceSplited[1]).append(" ")
+//						.append(sentenceSplited[sentenceSplited.length - 1])
+//						.append(" ");
+//			} else {
+//				sbTmp.append(sentence).append(" ");
+//			}
+//		}
+//		this.specialWords = sbTmp.toString();
+
+	}
+
+	public String getCategory() {
+		return category;
+	}
+
+	public void setCategory(ArrayList<String> al_features) {
+		if (al_features != null && al_features.size()>0 && al_features.size() % 3 == 0) {
+
+			// 做特殊映射，不是c，应该是映射后的分类，比如“足球”到“体育”
+			for (int i = 0; i < al_features.size(); i += 3) {
+				String feature = al_features.get(i);
+				String type = al_features.get(i + 1);
+				float weight = 0f;
+				try {
+					weight = Float.valueOf(al_features.get(i + 2));
+				} catch (Exception e) {
+					weight = 0f;
+					e.printStackTrace();
+				}
+				
+				
+//				if (weight < 0 && type.equals("c")){							
+//					weight = Math.abs(weight);
+//					if(weight > 0.1f)
+//						this.setCategory(feature);
+//					break;
+//				}
+				
+				if(type.equals("c") &&  Math.abs(weight) > 0.1f){
+					this.setCategory(feature);
+					break;
+				}
+			}
+			
+			if(this.getCategory() == null || this.getCategory().isEmpty())
+				this.setCategory("other");
+		}
+
+	}
+
+	public Integer getPv() {
+		return pv;
+	}
+
+	public void setPv(int pv) {
+		this.pv = pv;
+	}
+
+	public String getOthers() {
+		return others;
+	}
+
+	public void setOthers(String othersIn) {
+		this.others = othersIn;
+	}
+
+	public void setDegraded(char weight) {
+		// TODO Auto-generated method stub
+		switch (weight) {
+		case 'A':
+			this.degraded = 4;
+			break;
+		case 'B':
+			this.degraded = 3;
+			break;
+		case 'C':
+			this.degraded = 2;
+			break;
+		case 'D':
+			this.degraded = 1;
+			break;
+		case 'E':
+			this.degraded = 0;
+			break;
+		default:
+			this.degraded = 0;
+			break;
+		}
+	}
+
+	/**
+	 * 这是一个特殊的业务场景逻辑：当投放模型中的rankItem，外部的weight已经提升，那么这个时候我们可以考虑对其修正下lifetime、
+	 * createtime、weight、degrede， 以方便投放模型进行重新投放； 注意：
+	 * 
+	 * @param outsideWeight
+	 */
+	public void weightingTo(String outsideWeight) {
+		// TODO Auto-generated method stub
+		if (outsideWeight == null || outsideWeight.isEmpty())
+			return;
+		this.setWeight(outsideWeight);
+		this.setCreateTimeStamp((System.currentTimeMillis() / 1000));
+		this.setLifeTimeAndDegraded();
+	}
+
+	
+
+	//@test,临时用，否决
+	public void setCategory(String cat) {
+		// TODO Auto-generated method stub
+		if(cat != null)
+			this.category = cat;
+	}
+
+	/*
+	 * 这个用于item数据授权控制，函数输出数据分流label，用于不同业务场景下是否可用的授权；比如illegal、yidian、ifeng等等label；
+	 * 举例：
+	 * 1）我们自己的产品完全不care这些，但是给PC的推荐，只能用ifeng标记；
+	 * 2）给凤凰新闻客户端的推荐及各种业务，只用yidian、ifeng两种数据label，并且要求不能illegal
+	 * 3）PC端只能用ifeng标记item；
+	 * 。。。
+	 */
+	public static String genDataAuthLabel(RankItemNew r_item) {
+		// TODO Auto-generated method stub
+		StringBuffer sb_res = new StringBuffer();
+		if(r_item == null)
+			return "";
+
+		//根据other字段来识别,将不可用类型的内容都设置成illegal
+		String others = r_item.getItem().getOther();
+		
+		//识别头条内容池数据
+		if(others!=null && 
+				others.indexOf("source=ifengtoutiao") >= 0){
+			sb_res.append("ifeng ifengtoutiao editor");
+			return sb_res.toString().trim();
+		}
+		
+		//识别编辑推送数据  **:不加ifengpush editor标记，头条先不用，因为可能没有缩略图
+		if(others!=null && 
+				others.indexOf("source=ifengpush") >= 0){
+			sb_res.append("ifeng");
+			return sb_res.toString().trim();
+		}
+	
+		//识别编辑推荐位数据
+		if(others!=null && 
+				others.indexOf("source=appeditor") >= 0){
+			sb_res.append("ifeng editor");
+			return sb_res.toString().trim();
+		}
+		
+		//识别PC编辑推荐数据
+		if(others!=null && 
+				others.indexOf("source=ifengpc") >= 0){
+			sb_res.append("ifeng ifengpc editor");
+			return sb_res.toString().trim();
+		}
+		
+		
+		// 识别原创数据
+		if (others != null && others.indexOf("source=original") >= 0) {
+			sb_res.append("ifeng editor original");
+			return sb_res.toString().trim();
+		}
+		
+		// 识别视频数据
+		if (others != null && others.indexOf("source=phvideo") >= 0) {
+			sb_res.append("ifengvideo");
+			return sb_res.toString().trim();
+		}
+		
+		//dftoutiao 
+		if (others != null && others.indexOf("source=dftoutiao") >= 0) {
+			sb_res.append("dftoutiao");
+			return sb_res.toString().trim();
+		}
+		
+		// 识别自媒体数据
+		if (others != null && others.indexOf("source=wemedia") >= 0) {
+			//一点的自媒体会有yidian标记,凤凰的自媒体会有ifeng标记
+			if(others.indexOf("from=ifeng") >= 0)
+				sb_res.append("wemedia ifeng");
+			if(others.indexOf("from=yidian") >= 0)
+				sb_res.append("wemedia yidian");
+			
+			return sb_res.toString().trim();
+		}
+		
+		//source=sohu|!|channel=news|!|hotlevel=B|!|qualitylevel=B|!|judge=illegal|!|tags=2016全国两会-2016两会消息
+		if(others != null && others.indexOf("judge=illegal") >= 0)
+			sb_res.append("illegal");
+		else{
+			//如果是不合法稿源，则不合法;改成从配置文件中读出;强容错逻辑?
+			//String illegalSoureRules = new AutoLoadingConfiguration("conf/config.properties", null).getValueBykey("illegalSoureRules");
+			//
+			boolean rt = illegalSoureJudge.getInstance().judge(r_item.getItem().getSource(),r_item.getItem().getUrl());
+			if(true == rt)
+				sb_res.append("illegal");
+			else{//source = sohu也非法，保证ifeng和yidian这种可用数据能留在rankmodel	
+				if(others!=null && 
+						others.indexOf("source=sohu") >= 0){
+					sb_res.append("illegal");
+				}
+				
+			}
+		}
+			
+
+		if(others!=null && 
+				(others.indexOf("source=yidianzixun") >= 0
+				||others.indexOf("source=ignoreYidian") >= 0
+				||others.indexOf("source=wemediaYidian") >= 0)){
+			//白名单里面的是可以置信的
+			//...
+			sb_res.append(" yidian");
+		}
+		
+//		if(others!=null && others.indexOf("source=ignore|!|") >=0){
+//			//优质内容才是我们app需要的
+//			//...
+//			sb_res.append(" fineitems");
+//		}
+//		
+//		//放置本地数据
+//		ArrayList<String> al_features = r_item.getItem().getFeatures();
+//		if(al_features.size()%3 == 0){
+//			for(int i=0;i<al_features.size();i+=3){
+//				String feature = al_features.get(i);
+//				String type = al_features.get(i+1);
+//			
+//				if(type.equals("loc")){
+//					sb_res.append(" ").append(feature);
+//				}
+//	
+//			}
+//		}
+		
+		//加入outside字段
+		String url = r_item.getItem().getUrl();
+		if(url != null && url.indexOf("ifeng.com/") > 0){
+			sb_res.append(" ifeng");
+		}
+		
+		return sb_res.toString().trim();
+	}
+	
+}

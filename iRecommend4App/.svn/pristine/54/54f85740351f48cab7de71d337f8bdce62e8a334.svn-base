@@ -1,0 +1,7 @@
+前段投放other字段格式说明
+other：{fromImcp/fromCmpp/fromsub}|!|{weather=北京}|!|{pic=1|1|1}
+{fromImcp/fromCmpp/fromsub} ： 文章来源
+{pic=1|1|1} ：pic=[文章是否有缩略图1/0]|[文章正文里是否有图1/0]|[是否为幻灯slide1/0]
+{weather=北京} ： 天气信息=地域
+
+样例：other : fromImcp|!|weather=北京|!|pic=1|1|1
